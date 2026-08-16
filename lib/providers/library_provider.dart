@@ -110,6 +110,11 @@ class LibraryProvider extends ChangeNotifier {
 
   // ===== CRUD =====
 
+  /// Agrega una `Song` ya resuelta (p. ej. bajada por P2P — ver
+  /// `SessionProvider`/`P2pTransferService`) a la biblioteca. Dedupe por
+  /// hash, igual que `pickAndAddSong`.
+  Future<void> addSong(Song song) => _addOrUpdate(song);
+
   Future<void> _addOrUpdate(Song song) async {
     final index = _songs.indexWhere((s) => s.hash == song.hash);
     if (index != -1) return; // dedupe: mismo contenido ya en biblioteca

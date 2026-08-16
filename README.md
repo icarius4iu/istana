@@ -123,23 +123,28 @@ Android/iOS/macOS/Web): se usa `just_audio_media_kit` (libmpv vía
 Crear o unirse a una sesión con otro dispositivo, cola compartida y
 reproducción **sincronizada** (ambos arrancan la canción en el mismo
 instante, no "casi al mismo tiempo") contra el backend
-[mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p).
+[mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p). Si a
+alguien le falta el archivo, la app lo trae **directo del otro dispositivo**
+por la misma red (P2P real — ver más abajo), sin pasar por el servidor.
 
 ### Cómo probarlo con dos dispositivos
 
 1. Levantá el backend (`./tools/levantar.sh` en el repo del backend) — anotá
    la URL pública que imprime.
-2. En **cada** dispositivo: abrí el ícono de jam session (🎧, junto a
-   Playlists) → pantalla "Sin sesión" → pegá esa misma URL en **Servidor** →
-   creá una cuenta (usuario/contraseña, cualquiera).
-3. **Copiá el mismo archivo MP3** en la biblioteca de los dos dispositivos —
-   el emparejamiento es por **hash SHA-256 del contenido**, así que tiene
-   que ser el mismo archivo, no solo el mismo nombre.
-4. Dispositivo A: **Crear jam session** → aparece el código (`JAM-XXX`) y un
+2. En **cada** dispositivo, en la **misma red WiFi**: abrí el ícono de jam
+   session (🎧, junto a Playlists) → pegá esa URL en **Servidor** → creá una
+   cuenta (usuario/contraseña, cualquiera).
+3. Dispositivo A: **Crear jam session** → aparece el código (`JAM-XXX`) y un
    QR.
-5. Dispositivo B: **Unirme** con ese código.
-6. Desde cualquiera de los dos: agregar la canción a la cola compartida →
-   **Reproducir**. Los dos deberían arrancar en el mismo instante.
+4. Dispositivo B: **Unirme** con ese código.
+5. Desde cualquiera: agregar una canción de su biblioteca a la cola →
+   **Reproducir**. Si el otro dispositivo no la tiene todavía, la fila de la
+   cola muestra "descargando…" mientras se la trae del que sí la tiene; una
+   vez lista, ambos arrancan en el mismo instante.
+
+Solo hace falta el mismo archivo en ambos dispositivos si **ninguno de los
+dos** lo tiene — con que uno de los dos lo tenga alcanza, ya que el otro lo
+recibe por P2P.
 
 ### Cómo funciona (y sus límites en esta versión)
 
@@ -155,12 +160,18 @@ instante, no "casi al mismo tiempo") contra el backend
   dispositivo traduce esa cita a su propio reloj con el offset medido y
   programa un `Timer` para arrancar exacto ahí. Corrección de deriva por
   heartbeat si se desvía más de 250ms.
-- **Sin transferencia P2P de archivos todavía**: la señalización
-  (`p2p_request`/`p2p_offer`/`p2p_ready`) se implementa, pero el transporte
-  de bytes entre dispositivos es la próxima versión — por eso el paso 3
-  (mismo archivo en ambos) es necesario por ahora. Si a alguien le falta el
-  archivo, la app lo avisa en vez de intentar reproducir algo que no tiene.
-- El código vive en `lib/services/{api_client,auth_service,session_service}.dart`,
+- **Transferencia P2P de archivos**: el backend solo coordina señalización
+  (`p2p_request`/`p2p_offer`/`p2p_ready` → `IP:puerto`) — "ni un byte de
+  audio pasa por el servidor". El transporte real es un socket TCP directo
+  entre dispositivos, con un protocolo propio de una línea (`GET <hash>\n` →
+  el archivo entero) implementado en `P2pTransferService`. Solo funciona
+  entre dispositivos de la **misma red local** (las IPs que se anuncian son
+  privadas, tipo `192.168.x.x`); no hay traversal de NAT entre redes
+  distintas. **No disponible en Web** (sin sockets TCP crudos en el
+  navegador — `Env.canP2pTransfer`). En iOS y macOS, la primera transferencia
+  dispara el permiso de "red local" del sistema operativo (hay que aceptarlo).
+- El código vive en
+  `lib/services/{api_client,auth_service,session_service,p2p_transfer_service{,_io,_web,_stub}}.dart`,
   `lib/providers/session_provider.dart`, `lib/models/session_models.dart` y
   las pantallas `lib/screens/{auth,session}_screen.dart`.
 
@@ -169,7 +180,7 @@ instante, no "casi al mismo tiempo") contra el backend
 ## Tests
 
 ```bash
-flutter test                                  # unit + widget (90 tests, sin device)
+flutter test                                  # unit + widget (97 tests, sin device)
 flutter test integration_test -d linux        # o -d chrome / -d windows / -d macos
 ```
 
@@ -189,6 +200,10 @@ flutter test integration_test -d linux        # o -d chrome / -d windows / -d ma
   de cada request. **`session_provider_test.dart`** cubre el enlace con
   `PlayerProvider` (precarga en pausa, cita de reproducción, corrección de
   deriva) con el mismo patrón de streams simulados que `player_provider_test`.
+- **`test/unit/services/p2p_transfer_service_io_test.dart`** prueba la
+  transferencia de archivos con sockets TCP reales en loopback (round-trip
+  byte a byte, descargas concurrentes, host sin el archivo, conexión
+  cortada a mitad de camino) — nada de mocks, igual que `session_service_test`.
 - **`integration_test/`** arranca la app de verdad (Hive real, sin mocks) y
   necesita un dispositivo/navegador/desktop real — no corre bajo `flutter
   test` a secas porque `path_provider`/`shared_preferences` no tienen canal

@@ -4,6 +4,11 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Bajo App Sandbox, TODA conexión saliente (HTTP/WebSocket del backend,
+	     y el socket cliente de la transferencia P2P) exige esta entitlement
+	     explícita — sin ella el sandbox la bloquea en silencio. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<!-- Requerido por file_picker (NSOpenPanel) bajo App Sandbox: sin esto
 	     el picker no puede devolver acceso al archivo elegido. -->
 	<key>com.apple.security.files.user-selected.read-only</key>

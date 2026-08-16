@@ -15,6 +15,7 @@ import 'services/api_client.dart';
 import 'services/audio_service.dart';
 import 'services/auth_service.dart';
 import 'services/file_service.dart';
+import 'services/p2p_transfer_service.dart';
 import 'services/playlist_service.dart';
 import 'services/session_service.dart';
 import 'services/storage_service.dart';
@@ -58,6 +59,7 @@ Future<void> main() async {
     libraryProvider: libraryProvider,
     apiClient: getIt<ApiClient>(),
     storage: getIt<StorageService>(),
+    p2p: getIt<P2pTransferService>(),
   );
 
   runApp(

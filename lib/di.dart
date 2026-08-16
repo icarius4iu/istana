@@ -5,6 +5,7 @@ import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/file_service.dart';
 import 'services/notification_service.dart';
+import 'services/p2p_transfer_service.dart';
 import 'services/playlist_service.dart';
 import 'services/session_service.dart';
 import 'services/storage_service.dart';
@@ -46,4 +47,5 @@ Future<void> setupDependencies() async {
   getIt.registerLazySingleton<SessionService>(
     () => SessionService(api: getIt<ApiClient>()),
   );
+  getIt.registerLazySingleton<P2pTransferService>(() => P2pTransferService());
 }

@@ -6,38 +6,48 @@ import '../../utils/formatters.dart';
 
 /// Fila de la cola compartida. 100% presentacional (callbacks, sin
 /// providers adentro), mismo patrón que `SongTile`. [ownedLocally] marca si
-/// el dispositivo ya tiene el archivo (por hash) — si no, todavía no se
-/// puede reproducir acá (v1: sin transferencia P2P).
+/// el dispositivo ya tiene el archivo (por hash); si no y [isDownloading]
+/// es `true`, se está bajando de otro miembro por P2P ahora mismo (ver
+/// `SessionProvider.isDownloading`) — si no, todavía no se pidió.
 class QueueEntryTile extends StatelessWidget {
   final QueueEntry entry;
   final bool ownedLocally;
+  final bool isDownloading;
   final VoidCallback? onRemove;
 
   const QueueEntryTile({
     super.key,
     required this.entry,
     required this.ownedLocally,
+    this.isDownloading = false,
     this.onRemove,
   });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(
-        _statusIcon,
-        color: entry.status == QueueItemStatus.playing
-            ? AppTheme.spotifyGreen
-            : AppTheme.textSecondary,
-      ),
+      leading: isDownloading
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.spotifyGreen,
+              ),
+            )
+          : Icon(
+              _statusIcon,
+              color: entry.status == QueueItemStatus.playing
+                  ? AppTheme.spotifyGreen
+                  : AppTheme.textSecondary,
+            ),
       title: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         '${entry.artist} · ${FormatUtils.formatDuration(Duration(seconds: entry.durationSeconds))}'
-        '${ownedLocally ? '' : ' · no está en tu biblioteca'}',
+        '${_subtitleSuffix()}',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: ownedLocally ? AppTheme.textSecondary : AppTheme.error,
-        ),
+        style: TextStyle(color: _subtitleColor()),
       ),
       trailing: onRemove == null
           ? null
@@ -46,6 +56,18 @@ class QueueEntryTile extends StatelessWidget {
               onPressed: onRemove,
             ),
     );
+  }
+
+  String _subtitleSuffix() {
+    if (ownedLocally) return '';
+    return isDownloading
+        ? ' · descargando de otro dispositivo…'
+        : ' · no está en tu biblioteca';
+  }
+
+  Color _subtitleColor() {
+    if (ownedLocally) return AppTheme.textSecondary;
+    return isDownloading ? AppTheme.spotifyGreen : AppTheme.error;
   }
 
   IconData get _statusIcon {

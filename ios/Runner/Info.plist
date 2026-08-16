@@ -33,6 +33,13 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- Desde iOS 14, CUALQUIER conexión a una IP de red local (no solo
+	     Bonjour/mDNS) dispara este permiso — lo necesita la transferencia
+	     P2P de la jam session (sockets TCP directos entre dispositivos de
+	     la misma red, ver P2pTransferService). Sin esto la conexión falla
+	     en silencio. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Ist'aña necesita acceso a la red local para enviar y recibir canciones directamente entre dispositivos durante una jam session.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

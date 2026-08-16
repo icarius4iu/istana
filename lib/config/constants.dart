@@ -59,6 +59,8 @@ class AppConstants {
   // SyncService.DEFAULT_DRIFT_TOLERANCE_MS en el backend: corregir por menos
   // produce saltos audibles perceptibles.
   static const int driftToleranceMs = 250;
+  // Cuánto esperar un p2p_ready antes de darnos por vencidos con ese pedido.
+  static const Duration p2pRequestTimeout = Duration(seconds: 15);
 
   // ===== TAMAÑOS UI =====
   static const double miniPlayerHeight = 64;

@@ -263,6 +263,7 @@ class _ActiveSessionBody extends StatelessWidget {
                   QueueEntryTile(
                     entry: entry,
                     ownedLocally: library.getSongById(entry.fileHash) != null,
+                    isDownloading: session.isDownloading(entry.fileHash),
                   ),
               ],
             ),

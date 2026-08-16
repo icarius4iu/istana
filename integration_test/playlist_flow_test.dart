@@ -13,6 +13,7 @@ import 'package:mp3_player_flutter/services/api_client.dart';
 import 'package:mp3_player_flutter/services/audio_service.dart';
 import 'package:mp3_player_flutter/services/auth_service.dart';
 import 'package:mp3_player_flutter/services/file_service.dart';
+import 'package:mp3_player_flutter/services/p2p_transfer_service.dart';
 import 'package:mp3_player_flutter/services/playlist_service.dart';
 import 'package:mp3_player_flutter/services/session_service.dart';
 import 'package:mp3_player_flutter/services/storage_service.dart';
@@ -43,6 +44,7 @@ void main() {
       libraryProvider: libraryProvider,
       apiClient: getIt<ApiClient>(),
       storage: getIt<StorageService>(),
+      p2p: getIt<P2pTransferService>(),
     );
 
     await tester.pumpWidget(

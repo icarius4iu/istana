@@ -14,6 +14,7 @@ import 'package:mp3_player_flutter/providers/player_provider.dart';
 import 'package:mp3_player_flutter/providers/session_provider.dart';
 import 'package:mp3_player_flutter/services/api_client.dart';
 import 'package:mp3_player_flutter/services/auth_service.dart';
+import 'package:mp3_player_flutter/services/p2p_transfer_service.dart';
 import 'package:mp3_player_flutter/services/session_service.dart';
 import 'package:mp3_player_flutter/services/storage_service.dart';
 
@@ -26,6 +27,8 @@ class MockPlayerProvider extends Mock implements PlayerProvider {}
 class MockLibraryProvider extends Mock implements LibraryProvider {}
 
 class MockStorageService extends Mock implements StorageService {}
+
+class MockP2pTransferService extends Mock implements P2pTransferService {}
 
 Song _song(String hash) => Song(
   id: hash,
@@ -66,6 +69,7 @@ void main() {
   late MockPlayerProvider playerProvider;
   late MockLibraryProvider libraryProvider;
   late MockStorageService storage;
+  late MockP2pTransferService p2p;
   late ApiClient apiClient;
   late StreamController<SessionServerEvent> eventsController;
   late StreamController<bool> connectionController;
@@ -83,6 +87,7 @@ void main() {
     playerProvider = MockPlayerProvider();
     libraryProvider = MockLibraryProvider();
     storage = MockStorageService();
+    p2p = MockP2pTransferService();
     apiClient = ApiClient(baseUrl: 'http://backend.test');
 
     eventsController = StreamController<SessionServerEvent>.broadcast();
@@ -132,6 +137,17 @@ void main() {
     when(() => playerProvider.play()).thenAnswer((_) async {});
 
     when(() => libraryProvider.getSongById(any())).thenReturn(null);
+    when(() => libraryProvider.songs).thenReturn(const []);
+    when(() => libraryProvider.addSong(any())).thenAnswer((_) async {});
+
+    // Por defecto, "sin P2P disponible" (como si no hubiera nada que
+    // anunciar todavía) — los tests que sí ejercitan la descarga lo
+    // sobreescriben explícitamente.
+    when(
+      () => p2p.startServing(resolveLocalPath: any(named: 'resolveLocalPath')),
+    ).thenAnswer((_) async => null);
+    when(() => p2p.stopServing()).thenAnswer((_) async {});
+    when(() => p2p.localIpAddress()).thenAnswer((_) async => null);
   });
 
   tearDown(() async {
@@ -146,6 +162,7 @@ void main() {
     libraryProvider: libraryProvider,
     apiClient: apiClient,
     storage: storage,
+    p2p: p2p,
   );
 
   group('auth', () {
@@ -321,51 +338,171 @@ void main() {
       },
     );
 
-    test(
-      'advanceQueue informa error si el archivo no está en la biblioteca local',
-      () async {
-        when(
-          () => sessionService.joinSession(
-            code: any(named: 'code'),
-            userId: any(named: 'userId'),
+    test('advanceQueue con archivo faltante avanza igual (no bloquea a los '
+        'demás) y dispara el pedido P2P', () async {
+      when(
+        () => sessionService.joinSession(
+          code: any(named: 'code'),
+          userId: any(named: 'userId'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          session: JamSession(
+            id: 's1',
+            code: 'JAM-A2B',
+            ownerId: 'user-1',
+            currentPositionMs: 0,
+            state: JamPlaybackState.paused,
+            maxUsers: 5,
+            createdAt: DateTime(2026, 1, 1),
+            expiresAt: DateTime(2026, 1, 1, 2),
           ),
-        ).thenAnswer(
-          (_) async => (
-            session: JamSession(
-              id: 's1',
-              code: 'JAM-A2B',
-              ownerId: 'user-1',
-              currentPositionMs: 0,
-              state: JamPlaybackState.paused,
-              maxUsers: 5,
-              createdAt: DateTime(2026, 1, 1),
-              expiresAt: DateTime(2026, 1, 1, 2),
-            ),
-            members: <SessionMember>[],
+          members: <SessionMember>[],
+        ),
+      );
+      final entry = _queueEntry(id: 'q1', fileHash: 'faltante');
+      when(() => sessionService.getNextInQueue(any()))
+          .thenAnswer((_) async => entry);
+      when(() => libraryProvider.getSongById('faltante')).thenReturn(null);
+      when(
+        () => sessionService.setQueueItemStatus(
+          code: any(named: 'code'),
+          queueItemId: any(named: 'queueItemId'),
+          status: any(named: 'status'),
+        ),
+      ).thenAnswer((_) async => entry);
+      when(
+        () => sessionService.sendP2pRequest(
+          fileHash: any(named: 'fileHash'),
+          fileName: any(named: 'fileName'),
+          fileSize: any(named: 'fileSize'),
+        ),
+      ).thenReturn(null);
+
+      final provider = build();
+      await provider.joinSession('jam-a2b');
+      await _settle();
+
+      final ok = await provider.advanceQueue();
+      await _settle();
+
+      expect(ok, isTrue); // avanza igual: no bloquea a quien sí lo tiene
+      expect(provider.isDownloading('faltante'), isTrue);
+      verify(
+        () => sessionService.setQueueItemStatus(
+          code: 'JAM-A2B',
+          queueItemId: 'q1',
+          status: QueueItemStatus.playing,
+        ),
+      ).called(1);
+      verify(
+        () => sessionService.sendP2pRequest(
+          fileHash: 'faltante',
+          fileName: entry.title,
+          fileSize: entry.fileSize,
+        ),
+      ).called(1);
+      verify(() => sessionService.sendPlay()).called(1);
+    });
+
+    test('cuando llega el p2p_ready, se descarga el archivo y se agrega a la biblioteca', () async {
+      when(
+        () => sessionService.joinSession(
+          code: any(named: 'code'),
+          userId: any(named: 'userId'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          session: JamSession(
+            id: 's1',
+            code: 'JAM-A2B',
+            ownerId: 'user-1',
+            currentPositionMs: 0,
+            state: JamPlaybackState.paused,
+            maxUsers: 5,
+            createdAt: DateTime(2026, 1, 1),
+            expiresAt: DateTime(2026, 1, 1, 2),
           ),
-        );
-        when(
-          () => sessionService.getNextInQueue(any()),
-        ).thenAnswer((_) async => _queueEntry(id: 'q1', fileHash: 'faltante'));
-        when(() => libraryProvider.getSongById('faltante')).thenReturn(null);
+          members: <SessionMember>[],
+        ),
+      );
+      final entry = _queueEntry(id: 'q1', fileHash: 'faltante');
+      when(() => sessionService.getNextInQueue(any()))
+          .thenAnswer((_) async => entry);
+      when(() => libraryProvider.getSongById('faltante')).thenReturn(null);
+      when(
+        () => sessionService.setQueueItemStatus(
+          code: any(named: 'code'),
+          queueItemId: any(named: 'queueItemId'),
+          status: any(named: 'status'),
+        ),
+      ).thenAnswer((_) async => entry);
+      when(
+        () => sessionService.sendP2pRequest(
+          fileHash: any(named: 'fileHash'),
+          fileName: any(named: 'fileName'),
+          fileSize: any(named: 'fileSize'),
+        ),
+      ).thenReturn(null);
+      when(() => p2p.resolveDownloadDestination('faltante'))
+          .thenAnswer((_) async => '/tmp/faltante.mp3');
+      when(
+        () => p2p.downloadFrom(
+          hostIp: any(named: 'hostIp'),
+          hostPort: any(named: 'hostPort'),
+          fileHash: any(named: 'fileHash'),
+          expectedFileSize: any(named: 'expectedFileSize'),
+          destPath: any(named: 'destPath'),
+          onProgress: any(named: 'onProgress'),
+        ),
+      ).thenAnswer((_) async {});
+      when(
+        () => sessionService.sendTransferProgress(
+          fileHash: any(named: 'fileHash'),
+          bytesSent: any(named: 'bytesSent'),
+          totalBytes: any(named: 'totalBytes'),
+        ),
+      ).thenReturn(null);
 
-        final provider = build();
-        await provider.joinSession('jam-a2b');
-        await _settle();
+      final provider = build();
+      await provider.joinSession('jam-a2b');
+      await _settle();
+      await provider.advanceQueue();
+      await _settle();
+      expect(provider.isDownloading('faltante'), isTrue);
 
-        final ok = await provider.advanceQueue();
+      eventsController.add(
+        P2pReadyEvent(
+          timestamp: DateTime.now(),
+          hostIp: '192.168.1.5',
+          hostPort: 5555,
+          fileHash: 'faltante',
+        ),
+      );
+      await _settle();
+      await _settle();
 
-        expect(ok, isFalse);
-        expect(provider.errorMessage, contains('Bleed'));
-        verifyNever(
-          () => sessionService.setQueueItemStatus(
-            code: any(named: 'code'),
-            queueItemId: any(named: 'queueItemId'),
-            status: any(named: 'status'),
+      verify(
+        () => p2p.downloadFrom(
+          hostIp: '192.168.1.5',
+          hostPort: 5555,
+          fileHash: 'faltante',
+          expectedFileSize: entry.fileSize,
+          destPath: '/tmp/faltante.mp3',
+          onProgress: any(named: 'onProgress'),
+        ),
+      ).called(1);
+      verify(
+        () => libraryProvider.addSong(
+          any(
+            that: isA<Song>()
+                .having((s) => s.hash, 'hash', 'faltante')
+                .having((s) => s.path, 'path', '/tmp/faltante.mp3'),
           ),
-        );
-      },
-    );
+        ),
+      ).called(1);
+      expect(provider.isDownloading('faltante'), isFalse);
+    });
 
     test('advanceQueue con el archivo presente: marca PLAYING, precarga en pausa y manda play', () async {
       when(

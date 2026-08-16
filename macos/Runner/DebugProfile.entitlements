@@ -6,6 +6,11 @@
 	<true/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
+	<!-- Bajo App Sandbox, TODA conexión saliente (HTTP/WebSocket del backend,
+	     y el socket cliente de la transferencia P2P) exige esta entitlement
+	     explícita — sin ella el sandbox la bloquea en silencio. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
 	<!-- Requerido por file_picker (NSOpenPanel) bajo App Sandbox: sin esto

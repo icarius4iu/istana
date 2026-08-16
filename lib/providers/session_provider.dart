@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../config/constants.dart';
+import '../config/env.dart';
 import '../models/session_models.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/p2p_transfer_service.dart';
 import '../services/session_service.dart';
 import '../services/storage_service.dart';
 import 'library_provider.dart';
@@ -17,13 +19,15 @@ import 'player_provider.dart';
 /// con [PlayerProvider]/[LibraryProvider] (reproducción local), igual que
 /// `PlayerProvider.onDurationResolved` enlaza con `LibraryProvider`.
 ///
-/// Diseño de v1 (sin transferencia P2P de archivos todavía — la
-/// señalización se registra pero el transporte de bytes es v2): un ítem de
-/// la cola solo se puede reproducir si el dispositivo YA tiene el archivo
-/// localmente (`LibraryProvider.getSongById(fileHash)` — `Song.id` es el
-/// hash SHA-256, el mismo identificador que usa el backend). La cola no
-/// tiene push por WebSocket (solo REST, ver `SessionService`), así que se
-/// pollea periódicamente y también se refresca ante eventos del socket.
+/// Un ítem de la cola se reproduce directo si el dispositivo YA tiene el
+/// archivo localmente (`LibraryProvider.getSongById(fileHash)` — `Song.id`
+/// es el hash SHA-256, el mismo identificador que usa el backend); si no,
+/// se pide por transferencia P2P (`_requestFileP2p`, ver
+/// `P2pTransferService`) a algún otro miembro conectado que sí lo tenga —
+/// el backend solo coordina el `IP:puerto`, el audio viaja directo entre
+/// dispositivos de la misma red local. La cola no tiene push por WebSocket
+/// (solo REST, ver `SessionService`), así que se pollea periódicamente y
+/// también se refresca ante eventos del socket.
 class SessionProvider extends ChangeNotifier {
   final AuthService _auth;
   final SessionService _sessionService;
@@ -31,6 +35,7 @@ class SessionProvider extends ChangeNotifier {
   final LibraryProvider _libraryProvider;
   final ApiClient _apiClient;
   final StorageService _storage;
+  final P2pTransferService _p2p;
 
   StreamSubscription<SessionServerEvent>? _eventsSub;
   StreamSubscription<bool>? _connectionSub;
@@ -46,6 +51,12 @@ class SessionProvider extends ChangeNotifier {
   bool _isBusy = false;
   bool _isConnected = false;
 
+  // Endpoint propio anunciado por p2p_ready, para responder de nuevo cuando
+  // el backend nos elige como host de un p2p_offer (ver _onServerEvent).
+  String? _localP2pIp;
+  int? _localP2pPort;
+  final Set<String> _downloadingHashes = {};
+
   SessionProvider({
     required AuthService auth,
     required SessionService sessionService,
@@ -53,12 +64,14 @@ class SessionProvider extends ChangeNotifier {
     required LibraryProvider libraryProvider,
     required ApiClient apiClient,
     required StorageService storage,
+    required P2pTransferService p2p,
   }) : _auth = auth,
        _sessionService = sessionService,
        _playerProvider = playerProvider,
        _libraryProvider = libraryProvider,
        _apiClient = apiClient,
-       _storage = storage {
+       _storage = storage,
+       _p2p = p2p {
     _eventsSub = _sessionService.events.listen(_onServerEvent);
     _connectionSub = _sessionService.connectionState.listen((connected) {
       _isConnected = connected;
@@ -145,6 +158,37 @@ class SessionProvider extends ChangeNotifier {
     _startTimers();
     notifyListeners();
     unawaited(_runClockSync());
+    unawaited(_startP2pServing());
+  }
+
+  /// Abre el servidor TCP local que sirve archivos a otros miembros (ver
+  /// `P2pTransferService`) y anuncia el endpoint (`p2p_ready`) para quedar
+  /// "CONNECTED" — condición que exige el backend para ser elegido como
+  /// fuente de CUALQUIER pedido P2P (no valida el hash en el momento de
+  /// elegir, ver el mapa de integración), así que alcanza con anunciar una
+  /// vez con cualquier canción propia. Si la biblioteca está vacía no hay
+  /// nada que anunciar todavía; igual el servidor queda escuchando por si
+  /// se agrega música más tarde.
+  Future<void> _startP2pServing() async {
+    if (!Env.canP2pTransfer) return;
+
+    final port = await _p2p.startServing(
+      resolveLocalPath: (hash) async =>
+          _libraryProvider.getSongById(hash)?.path,
+    );
+    if (port == null) return;
+    final ip = await _p2p.localIpAddress();
+    if (ip == null) return;
+
+    _localP2pIp = ip;
+    _localP2pPort = port;
+
+    if (_libraryProvider.songs.isEmpty) return;
+    _sessionService.sendP2pReady(
+      fileHash: _libraryProvider.songs.first.hash,
+      localIp: ip,
+      localPort: port,
+    );
   }
 
   Uri _wsUriFromApiBaseUrl() {
@@ -165,6 +209,7 @@ class SessionProvider extends ChangeNotifier {
     final session = _session;
     _stopTimers();
     _sessionService.disconnect();
+    unawaited(_p2p.stopServing());
     if (user != null && session != null) {
       try {
         await _sessionService.leaveSession(code: session.code, userId: user.id);
@@ -178,6 +223,9 @@ class SessionProvider extends ChangeNotifier {
     _members = const [];
     _queue = const [];
     _clockSync = null;
+    _localP2pIp = null;
+    _localP2pPort = null;
+    _downloadingHashes.clear();
     notifyListeners();
   }
 
@@ -221,9 +269,11 @@ class SessionProvider extends ChangeNotifier {
 
   /// Avanza la cola: toma la siguiente pendiente, la marca `PLAYING` (así
   /// los demás miembros la descubren por REST) y dispara la reproducción
-  /// sincronizada. Si el archivo no está en la biblioteca local, informa el
-  /// error en vez de intentar reproducir algo que no existe (la
-  /// transferencia P2P que resolvería esto es v2).
+  /// sincronizada. Si el archivo no está en la biblioteca local, la
+  /// avanzamos igual (para no bloquear a los demás miembros que sí lo
+  /// tienen) y lo pedimos por P2P en paralelo — `_ensureCurrentSongLoaded`
+  /// lo carga solo apenas termine de bajar, y la corrección de deriva por
+  /// heartbeat nos vuelve a poner en fase con el resto.
   Future<bool> advanceQueue() => _guard(() async {
     final session = _session;
     if (session == null) throw StateError('No hay sesión activa');
@@ -231,20 +281,18 @@ class SessionProvider extends ChangeNotifier {
     final next = await _sessionService.getNextInQueue(session.code);
     if (next == null) throw StateError('La cola compartida está vacía');
 
-    final song = _libraryProvider.getSongById(next.fileHash);
-    if (song == null) {
-      throw StateError(
-        'Todavía no tenés "${next.title}" en tu biblioteca (la transferencia '
-        'entre dispositivos llega en una próxima versión)',
-      );
-    }
-
     await _sessionService.setQueueItemStatus(
       code: session.code,
       queueItemId: next.id,
       status: QueueItemStatus.playing,
     );
-    await _playerProvider.loadQueue([song], autoPlay: false);
+
+    final song = _libraryProvider.getSongById(next.fileHash);
+    if (song != null) {
+      await _playerProvider.loadQueue([song], autoPlay: false);
+    } else {
+      unawaited(_requestFileP2p(next));
+    }
     _sessionService.sendPlay();
     await _refreshQueue();
   });
@@ -274,6 +322,7 @@ class SessionProvider extends ChangeNotifier {
   /// canción actual del reproductor — para que, cuando llegue la cita de
   /// reproducción por WebSocket, solo haga falta hacer seek + play en el
   /// instante exacto, sin depender de cuánto tarde en cargar el archivo.
+  /// Si el archivo no está local, dispara (o deja seguir) su descarga P2P.
   Future<void> _ensureCurrentSongLoaded() async {
     QueueEntry? playingEntry;
     for (final entry in _queue) {
@@ -286,12 +335,93 @@ class SessionProvider extends ChangeNotifier {
     if (_playerProvider.currentSong?.hash == playingEntry.fileHash) return;
 
     final song = _libraryProvider.getSongById(playingEntry.fileHash);
-    if (song == null) {
-      _errorMessage = 'Falta "${playingEntry.title}" en tu biblioteca';
+    if (song != null) {
+      await _playerProvider.loadQueue([song], autoPlay: false);
+      return;
+    }
+    unawaited(_requestFileP2p(playingEntry));
+  }
+
+  /// `true` mientras se está bajando [fileHash] de otro miembro — la UI
+  /// (`QueueEntryTile`) lo usa para mostrar "descargando…" en vez del error
+  /// genérico "no está en tu biblioteca".
+  bool isDownloading(String fileHash) => _downloadingHashes.contains(fileHash);
+
+  /// Le pide el archivo a quien lo tenga conectado en la sesión (señalización
+  /// `p2p_request` → `p2p_ready` → conexión TCP directa, ver
+  /// `P2pTransferService`) y, si llega, lo agrega a la biblioteca local y
+  /// reintenta cargarlo. Sin novedad si ya hay una descarga en curso para
+  /// ese mismo hash — el próximo poll de cola la vuelve a intentar sola si
+  /// esta falla (no hay reintento inmediato para no saturar al host).
+  Future<void> _requestFileP2p(QueueEntry entry) async {
+    if (!Env.canP2pTransfer) {
+      _errorMessage =
+          'Este dispositivo no puede recibir transferencias P2P (Web)';
       notifyListeners();
       return;
     }
-    await _playerProvider.loadQueue([song], autoPlay: false);
+    if (_downloadingHashes.contains(entry.fileHash)) return;
+
+    _downloadingHashes.add(entry.fileHash);
+    notifyListeners();
+
+    final readyCompleter = Completer<P2pReadyEvent>();
+    final sub = _sessionService.events.listen((event) {
+      if (event is P2pReadyEvent &&
+          event.fileHash == entry.fileHash &&
+          !readyCompleter.isCompleted) {
+        readyCompleter.complete(event);
+      }
+    });
+
+    try {
+      _sessionService.sendP2pRequest(
+        fileHash: entry.fileHash,
+        fileName: entry.title,
+        fileSize: entry.fileSize,
+      );
+
+      final ready = await readyCompleter.future.timeout(
+        AppConstants.p2pRequestTimeout,
+      );
+      final destPath = await _p2p.resolveDownloadDestination(entry.fileHash);
+      await _p2p.downloadFrom(
+        hostIp: ready.hostIp,
+        hostPort: ready.hostPort,
+        fileHash: entry.fileHash,
+        expectedFileSize: entry.fileSize,
+        destPath: destPath,
+        onProgress: (received, total) => _sessionService.sendTransferProgress(
+          fileHash: entry.fileHash,
+          bytesSent: received,
+          totalBytes: total,
+        ),
+      );
+
+      await _libraryProvider.addSong(
+        Song(
+          id: entry.fileHash,
+          path: destPath,
+          title: entry.title,
+          artist: entry.artist,
+          album: entry.album ?? '',
+          duration: entry.durationSeconds,
+          hash: entry.fileHash,
+          fileSize: entry.fileSize,
+          dateAdded: DateTime.now(),
+        ),
+      );
+      unawaited(_ensureCurrentSongLoaded());
+    } on TimeoutException {
+      _errorMessage =
+          'Nadie pudo enviarte "${entry.title}" (¿están en la misma red?)';
+    } catch (e) {
+      _errorMessage = 'No se pudo descargar "${entry.title}": $e';
+    } finally {
+      await sub.cancel();
+      _downloadingHashes.remove(entry.fileHash);
+      notifyListeners();
+    }
   }
 
   // ===== EVENTOS DEL WEBSOCKET =====
@@ -328,9 +458,11 @@ class SessionProvider extends ChangeNotifier {
         break;
       case ClockSyncResponseEvent _:
         break; // consumido internamente por SessionService.syncClock()
-      case P2pOfferEvent _:
+      case P2pOfferEvent e:
+        _respondToP2pOffer(e);
+        break;
       case P2pReadyEvent _:
-        break; // señalización P2P: solo se registra por ahora (v2)
+        break; // consumido por la suscripción propia de _requestFileP2p
       case UnknownSessionEvent _:
         break;
     }
@@ -353,6 +485,25 @@ class SessionProvider extends ChangeNotifier {
     await _ensureCurrentSongLoaded();
     await _playerProvider.seek(Duration(milliseconds: positionMs));
     await _playerProvider.play();
+  }
+
+  /// El servidor nos eligió como fuente (`hostId == yo`) para el hash que
+  /// alguien pidió. Si de verdad lo tenemos, reconfirmamos el endpoint con
+  /// ESE hash exacto (la primera vez que anunciamos `p2p_ready`, en
+  /// `_startP2pServing`, fue con cualquier canción propia solo para
+  /// quedar "CONNECTED" — esto lo deja preciso para este pedido puntual).
+  void _respondToP2pOffer(P2pOfferEvent event) {
+    final ip = _localP2pIp;
+    final port = _localP2pPort;
+    if (ip == null || port == null) return;
+    if (event.hostUserId != currentUser?.id) return;
+    if (_libraryProvider.getSongById(event.fileHash) == null) return;
+
+    _sessionService.sendP2pReady(
+      fileHash: event.fileHash,
+      localIp: ip,
+      localPort: port,
+    );
   }
 
   /// El heartbeat difundido trae la posición esperada, calculada del lado
@@ -416,6 +567,7 @@ class SessionProvider extends ChangeNotifier {
     _eventsSub?.cancel();
     _connectionSub?.cancel();
     unawaited(_sessionService.dispose());
+    unawaited(_p2p.stopServing());
     super.dispose();
   }
 }

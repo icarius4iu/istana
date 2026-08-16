@@ -35,6 +35,12 @@ class Env {
   /// archivo, en vez de derivarla solo del nombre.
   static bool get canReadId3Tags => !kIsWeb;
 
+  /// Se pueden abrir sockets TCP crudos para servir/descargar archivos
+  /// entre dispositivos de una jam session (ver `P2pTransferService`). En
+  /// Web no hay `dart:io`, así que no hay forma de escuchar conexiones
+  /// entrantes ni de conectarse directo a la IP LAN de otro dispositivo.
+  static bool get canP2pTransfer => !kIsWeb;
+
   /// Nombre corto de la plataforma actual, para logs/telemetría.
   static String get platformName {
     if (kIsWeb) return 'web';
