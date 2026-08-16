@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../config/env.dart';
 import '../config/theme.dart';
 import '../providers/session_provider.dart';
 import '../utils/extensions.dart';
@@ -9,6 +10,13 @@ import '../utils/extensions.dart';
 /// identidad (`AuthUser.id`) es lo que viaja como `ownerId`/`userId` en las
 /// rutas de sesión. Único formulario, alternando entre los dos modos (mismo
 /// patrón dual que `PlaylistScreen`: una sola pantalla, distinto estado).
+///
+/// También trae el campo "Servidor": es la PRIMERA pantalla de red que ve
+/// un usuario nuevo (desde `_LoginRequired` en `SessionScreen`, antes de
+/// tener sesión), así que configurar la URL acá evita el problema de
+/// "no puedo loguearme porque apunta a mi propio localhost" — la otra copia
+/// del campo (en `SessionScreen._NoSessionBody`) solo es alcanzable DESPUÉS
+/// de loguearse.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -21,13 +29,26 @@ class _AuthScreenState extends State<AuthScreen> {
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  late final TextEditingController _serverController;
   bool _isRegisterMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final session = context.read<SessionProvider>();
+    _serverController = TextEditingController(
+      text: session.serverUrl.isEmpty
+          ? Env.defaultApiBaseUrl
+          : session.serverUrl,
+    );
+  }
 
   @override
   void dispose() {
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _serverController.dispose();
     super.dispose();
   }
 
@@ -35,6 +56,9 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final session = context.read<SessionProvider>();
+    await session.setServerUrl(_serverController.text.trim());
+    if (!mounted) return;
+
     final ok = _isRegisterMode
         ? await session.register(
             username: _usernameController.text.trim(),
@@ -85,6 +109,20 @@ class _AuthScreenState extends State<AuthScreen> {
                     style: const TextStyle(color: AppTheme.textSecondary),
                   ),
                   const SizedBox(height: 24),
+                  Text(
+                    'Servidor',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                  TextFormField(
+                    controller: _serverController,
+                    decoration: const InputDecoration(hintText: 'https://...'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                        ? 'Falta la URL del servidor'
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _usernameController,
                     decoration: const InputDecoration(hintText: 'Usuario'),

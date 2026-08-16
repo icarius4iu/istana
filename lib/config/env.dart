@@ -42,9 +42,17 @@ class Env {
   }
 
   /// URL sugerida del backend cuando el usuario todavía no configuró una
-  /// propia (ver `StorageService.serverBaseUrl` — SessionProvider guarda la
-  /// que el usuario tipeó, porque en Codespaces cambia por sesión y en
-  /// dispositivos físicos nunca es `localhost`). Sirve tal cual en
-  /// desktop/emulador contra un backend corriendo en la misma máquina.
-  static const String defaultApiBaseUrl = 'http://localhost:8080';
+  /// propia (ver `StorageService.serverBaseUrl` — se persiste apenas se
+  /// edita el campo "Servidor", en la pantalla de login o de sesión).
+  ///
+  /// TEMPORAL: apunta al Codespace de desarrollo actual para poder probar
+  /// ya en dispositivos físicos sin tener que tipear la URL a mano. Esa URL
+  /// cambia cada vez que se relevanta el Codespace — cuando eso pase, o
+  /// para un build real, volver a `http://localhost:8080` (sirve tal cual
+  /// contra un backend en la misma máquina, p. ej. desktop/emulador) o
+  /// pisarlo con `--dart-define=API_BASE_URL=...`.
+  static const String defaultApiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://literate-yodel-9gv69g96wprh459-8080.app.github.dev',
+  );
 }
