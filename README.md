@@ -12,9 +12,10 @@
 
 Reproductor de MP3 locales con UI estilo Spotify. Corre en **Android, iOS,
 Windows, macOS, Linux y Web** desde el mismo código Dart. Es el cliente MVP
-puro (sin red): la integración con un backend P2P de sesiones de escucha
-compartida (sincronización de reproducción en tiempo real — vive en su propio
-repo, en desarrollo) es el siguiente paso, no parte de este MVP.
+puro (sin red): la integración con el backend P2P de sesiones de escucha
+compartida ([mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p) —
+sincronización de reproducción en tiempo real) es el siguiente paso, no parte
+de este MVP.
 
 ---
 
