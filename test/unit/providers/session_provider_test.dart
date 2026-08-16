@@ -135,6 +135,7 @@ void main() {
     ).thenAnswer((_) async {});
     when(() => playerProvider.seek(any())).thenAnswer((_) async {});
     when(() => playerProvider.play()).thenAnswer((_) async {});
+    when(() => playerProvider.pause()).thenAnswer((_) async {});
 
     when(() => libraryProvider.getSongById(any())).thenReturn(null);
     when(() => libraryProvider.songs).thenReturn(const []);
@@ -628,6 +629,49 @@ void main() {
       expect(provider.session?.state, JamPlaybackState.paused);
       expect(provider.session?.currentPositionMs, 5000);
     });
+
+    test(
+      'StateChangedEvent a "paused" pausa Y ajusta la posición del reproductor '
+      'local (sin esto la sesión decía "pausada" pero el audio seguía sonando)',
+      () async {
+        final provider = await joinedProvider();
+        addTearDown(provider.dispose);
+
+        eventsController.add(
+          StateChangedEvent(
+            timestamp: DateTime.now(),
+            state: JamPlaybackState.paused,
+            positionMs: 42000,
+          ),
+        );
+        await _settle();
+
+        verify(() => playerProvider.pause()).called(1);
+        verify(() => playerProvider.seek(const Duration(milliseconds: 42000)))
+            .called(1);
+      },
+    );
+
+    test(
+      'StateChangedEvent a "playing" NO pausa ni hace seek directo (eso lo '
+      'maneja la cita play_scheduled, para no arrancar fuera de sincronía)',
+      () async {
+        final provider = await joinedProvider();
+        addTearDown(provider.dispose);
+
+        eventsController.add(
+          StateChangedEvent(
+            timestamp: DateTime.now(),
+            state: JamPlaybackState.playing,
+            positionMs: 1000,
+          ),
+        );
+        await _settle();
+
+        verifyNever(() => playerProvider.pause());
+        verifyNever(() => playerProvider.seek(any()));
+      },
+    );
 
     test('SessionErrorEvent deja el mensaje en errorMessage', () async {
       final provider = await joinedProvider();

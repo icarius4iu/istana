@@ -7,9 +7,11 @@ import '../config/theme.dart';
 import '../models/session_models.dart';
 import '../models/song.dart';
 import '../providers/library_provider.dart';
+import '../providers/player_provider.dart';
 import '../providers/session_provider.dart';
 import '../utils/extensions.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/progress_bar.dart';
 import '../widgets/session/member_chip.dart';
 import '../widgets/session/qr_code_view.dart';
 import '../widgets/session/queue_entry_tile.dart';
@@ -269,6 +271,42 @@ class _ActiveSessionBody extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 24),
+        Consumer<PlayerProvider>(
+          builder: (context, player, _) {
+            final song = player.currentSong;
+            if (song == null) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  song.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                Text(
+                  song.artist,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 8),
+                // El seek local es solo feedback inmediato: la posición real
+                // la fija el backend (ver SessionProvider.seekTo -> manda
+                // "seek" por WS, que re-emite una cita play_scheduled con la
+                // nueva posición para todos, este dispositivo incluido).
+                ProgressBar(
+                  currentPosition: player.currentPosition,
+                  duration: player.duration,
+                  onSeek: (position) => session.seekTo(position),
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 8),
         Center(
           child: ElevatedButton.icon(
             icon: Icon(

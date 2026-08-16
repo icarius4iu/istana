@@ -438,6 +438,15 @@ class SessionProvider extends ChangeNotifier {
           currentSongId: e.currentSongId,
         );
         _errorMessage = null;
+        if (e.state == JamPlaybackState.paused) {
+          // "pause" nunca emite play_scheduled (a diferencia de "play"): es
+          // este mensaje, y no otro, el que tiene que pausar el audio local
+          // — sin esto la sesión decía "en pausa" pero seguía sonando. Un
+          // seek mientras está pausada tampoco emite cita (solo actualiza
+          // la posición), así que también hay que aplicarlo acá.
+          _playScheduleTimer?.cancel();
+          unawaited(_pauseAndSeek(e.positionMs));
+        }
         unawaited(_refreshQueue().then((_) => _ensureCurrentSongLoaded()));
         notifyListeners();
         break;
@@ -485,6 +494,15 @@ class SessionProvider extends ChangeNotifier {
     await _ensureCurrentSongLoaded();
     await _playerProvider.seek(Duration(milliseconds: positionMs));
     await _playerProvider.play();
+  }
+
+  /// Pausa y ajusta la posición, en ese orden (evita la carrera de disparar
+  /// las dos operaciones async en paralelo) — reacción a un `state_changed`
+  /// que deja la sesión pausada, sea por un "pause" o por un "seek" sin
+  /// reproducir.
+  Future<void> _pauseAndSeek(int positionMs) async {
+    await _playerProvider.pause();
+    await _playerProvider.seek(Duration(milliseconds: positionMs));
   }
 
   /// El servidor nos eligió como fuente (`hostId == yo`) para el hash que
