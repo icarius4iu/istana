@@ -43,5 +43,14 @@ linter:
     # library) — ver `main.dart` construyendo `LibraryProvider`, etc.
     prefer_initializing_formals: false
 
+    # `analyzer`/`hive_generator` (dependencias transitivas de build_runner,
+    # pineadas más abajo que el SDK) todavía no parsean el operador
+    # null-aware de colecciones (`{'k': ?v}`, Dart 3.9+): rompe
+    # `dart run build_runner build` con un error de sintaxis en CUALQUIER
+    # archivo del proyecto que lo use, no solo en los modelos Hive. Hasta
+    # que se actualice esa dependencia, se usa `if (v != null) 'k': v` — ver
+    # `session_service.dart`.
+    use_null_aware_elements: false
+
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

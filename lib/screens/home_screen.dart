@@ -27,6 +27,11 @@ class HomeScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.groups_outlined),
+            tooltip: 'Jam session',
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.session),
+          ),
+          IconButton(
             icon: const Icon(Icons.queue_music_outlined),
             tooltip: 'Playlists',
             onPressed: () => Navigator.pushNamed(context, AppRoutes.playlist),

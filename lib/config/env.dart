@@ -40,4 +40,11 @@ class Env {
     if (kIsWeb) return 'web';
     return defaultTargetPlatform.name;
   }
+
+  /// URL sugerida del backend cuando el usuario todavía no configuró una
+  /// propia (ver `StorageService.serverBaseUrl` — SessionProvider guarda la
+  /// que el usuario tipeó, porque en Codespaces cambia por sesión y en
+  /// dispositivos físicos nunca es `localhost`). Sirve tal cual en
+  /// desktop/emulador contra un backend corriendo en la misma máquina.
+  static const String defaultApiBaseUrl = 'http://localhost:8080';
 }

@@ -100,7 +100,16 @@ class PlayerProvider extends ChangeNotifier {
 
   // ===== COLA =====
 
-  Future<void> loadQueue(List<Song> songs, {int startIndex = 0}) async {
+  /// [autoPlay] en `false` carga la canción (queda "lista") sin arrancar el
+  /// audio — la usa la jam session para precargar en pausa la canción que
+  /// va a sonar en el instante exacto de una cita de reproducción
+  /// (`play_scheduled`), en vez de escucharla un instante localmente antes
+  /// de pausarla.
+  Future<void> loadQueue(
+    List<Song> songs, {
+    int startIndex = 0,
+    bool autoPlay = true,
+  }) async {
     if (songs.isEmpty) return;
 
     _queue = songs;
@@ -109,7 +118,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_shuffle) _reshuffleKeepingCurrent();
     notifyListeners();
 
-    await _playCurrent();
+    await _playCurrent(autoPlay: autoPlay);
   }
 
   Future<void> playSongAt(int queueIndex) async {
@@ -119,7 +128,7 @@ class PlayerProvider extends ChangeNotifier {
     await _playCurrent();
   }
 
-  Future<void> _playCurrent() async {
+  Future<void> _playCurrent({bool autoPlay = true}) async {
     final song = currentSong;
     if (song == null) return;
 
@@ -130,8 +139,13 @@ class PlayerProvider extends ChangeNotifier {
     try {
       final loadedDuration = await _audioService.loadSong(song.path);
       _duration = loadedDuration ?? song.durationObj;
-      await _audioService.play();
-      await _storage?.addRecentlyPlayed(song.id);
+      if (autoPlay) {
+        await _audioService.play();
+        await _storage?.addRecentlyPlayed(song.id);
+      } else {
+        _state = domain.PlayerState.paused;
+        notifyListeners();
+      }
     } catch (e) {
       _errorMessage = 'No se pudo reproducir "${song.title}": $e';
       _state = domain.PlayerState.stopped;

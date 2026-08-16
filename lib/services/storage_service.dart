@@ -113,6 +113,37 @@ class StorageService {
     time.toIso8601String(),
   );
 
+  // ===== SESIÓN DE JAM (auth + servidor) =====
+  //
+  // Flags de infraestructura simples (no ameritan un modelo Hive): el JWT y
+  // la identidad local del usuario logueado, y la URL del backend que el
+  // usuario configuró (ver Env.defaultApiBaseUrl para el valor sugerido).
+
+  String? get authToken => _prefs.getString(AppConstants.prefAuthToken);
+  String? get authUserId => _prefs.getString(AppConstants.prefAuthUserId);
+  String? get authUsername => _prefs.getString(AppConstants.prefAuthUsername);
+
+  Future<void> saveAuthSession({
+    required String token,
+    required String userId,
+    required String username,
+  }) async {
+    await _prefs.setString(AppConstants.prefAuthToken, token);
+    await _prefs.setString(AppConstants.prefAuthUserId, userId);
+    await _prefs.setString(AppConstants.prefAuthUsername, username);
+  }
+
+  Future<void> clearAuthSession() async {
+    await _prefs.remove(AppConstants.prefAuthToken);
+    await _prefs.remove(AppConstants.prefAuthUserId);
+    await _prefs.remove(AppConstants.prefAuthUsername);
+  }
+
+  String? get serverBaseUrl => _prefs.getString(AppConstants.prefServerBaseUrl);
+
+  Future<void> setServerBaseUrl(String url) =>
+      _prefs.setString(AppConstants.prefServerBaseUrl, url);
+
   Future<void> dispose() async {
     await _songsBox.close();
     await _playlistsBox.close();

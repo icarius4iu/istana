@@ -11,11 +11,11 @@
 [![macOS](https://github.com/icarius4iu/istana/actions/workflows/build_macos.yml/badge.svg)](https://github.com/icarius4iu/istana/actions/workflows/build_macos.yml)
 
 Reproductor de MP3 locales con UI estilo Spotify. Corre en **Android, iOS,
-Windows, macOS, Linux y Web** desde el mismo código Dart. Es el cliente MVP
-puro (sin red): la integración con el backend P2P de sesiones de escucha
-compartida ([mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p) —
-sincronización de reproducción en tiempo real) es el siguiente paso, no parte
-de este MVP.
+Windows, macOS, Linux y Web** desde el mismo código Dart. Ya integra el
+backend P2P ([mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p)):
+**jam sessions** — crear/unirse por código o QR, cola compartida y
+reproducción sincronizada entre dispositivos (ver
+[«Jam session»](#jam-session-escucha-compartida) más abajo).
 
 ---
 
@@ -27,6 +27,8 @@ de este MVP.
 - `metadata_god` para leer tags ID3 (Android/iOS/Desktop — no Web)
 - `provider` para estado reactivo, `get_it` para inyectar servicios
 - `hive` / `hive_flutter` para persistir biblioteca, playlists y config
+- `http` + `web_socket_channel` para la jam session (REST + WebSocket contra
+  [mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p))
 
 > El spec original pedía versiones fijas de 2023 (Flutter 3.13.0, `just_audio
 > ^0.9.36`, etc.). Se instaló Flutter estable actual y se dejó que `pub`
@@ -116,10 +118,58 @@ Android/iOS/macOS/Web): se usa `just_audio_media_kit` (libmpv vía
 
 ---
 
+## Jam session (escucha compartida)
+
+Crear o unirse a una sesión con otro dispositivo, cola compartida y
+reproducción **sincronizada** (ambos arrancan la canción en el mismo
+instante, no "casi al mismo tiempo") contra el backend
+[mp3-classifier-p2p](https://github.com/icarius4iu/mp3-classifier-p2p).
+
+### Cómo probarlo con dos dispositivos
+
+1. Levantá el backend (`./tools/levantar.sh` en el repo del backend) — anotá
+   la URL pública que imprime.
+2. En **cada** dispositivo: abrí el ícono de jam session (🎧, junto a
+   Playlists) → pantalla "Sin sesión" → pegá esa misma URL en **Servidor** →
+   creá una cuenta (usuario/contraseña, cualquiera).
+3. **Copiá el mismo archivo MP3** en la biblioteca de los dos dispositivos —
+   el emparejamiento es por **hash SHA-256 del contenido**, así que tiene
+   que ser el mismo archivo, no solo el mismo nombre.
+4. Dispositivo A: **Crear jam session** → aparece el código (`JAM-XXX`) y un
+   QR.
+5. Dispositivo B: **Unirme** con ese código.
+6. Desde cualquiera de los dos: agregar la canción a la cola compartida →
+   **Reproducir**. Los dos deberían arrancar en el mismo instante.
+
+### Cómo funciona (y sus límites en esta versión)
+
+- **Identidad**: JWT (`/api/users/login`), pero sesiones/cola son públicas
+  en el backend — la identidad viaja como parámetro explícito, no en el
+  token (así lo decidió el MVP del backend).
+- **Cola compartida**: solo REST (`/api/sessions/{code}/queue/...`), sin
+  push por WebSocket — se pollea cada 8s y también se refresca ante cada
+  evento del socket.
+- **Reproducción sincronizada**: clock sync estilo NTP (reintenta hasta
+  encontrar una medida con RTT ≤ 300ms) + citas de reproducción
+  (`play_scheduled`, instante absoluto en el reloj del servidor). Cada
+  dispositivo traduce esa cita a su propio reloj con el offset medido y
+  programa un `Timer` para arrancar exacto ahí. Corrección de deriva por
+  heartbeat si se desvía más de 250ms.
+- **Sin transferencia P2P de archivos todavía**: la señalización
+  (`p2p_request`/`p2p_offer`/`p2p_ready`) se implementa, pero el transporte
+  de bytes entre dispositivos es la próxima versión — por eso el paso 3
+  (mismo archivo en ambos) es necesario por ahora. Si a alguien le falta el
+  archivo, la app lo avisa en vez de intentar reproducir algo que no tiene.
+- El código vive en `lib/services/{api_client,auth_service,session_service}.dart`,
+  `lib/providers/session_provider.dart`, `lib/models/session_models.dart` y
+  las pantallas `lib/screens/{auth,session}_screen.dart`.
+
+---
+
 ## Tests
 
 ```bash
-flutter test                                  # unit + widget (50 tests, sin device)
+flutter test                                  # unit + widget (90 tests, sin device)
 flutter test integration_test -d linux        # o -d chrome / -d windows / -d macos
 ```
 
@@ -132,6 +182,13 @@ flutter test integration_test -d linux        # o -d chrome / -d windows / -d ma
   `StorageService`/`FileService` — cubre cola, shuffle (mantiene fija la
   canción actual), repeat, auto-avance al terminar una canción, y el bug real
   que tenía el spec original (togglear shuffle no debe saltar de canción).
+- **`test/unit/services/session_service_test.dart`** ejercita el WebSocket
+  contra un `HttpServer` local real (no un mock) — clock sync con RTT real,
+  y las claves JSON exactas del protocolo (`localIP`, `hostIP`, snake_case
+  vs camelCase); el REST usa `http/testing.dart` para fijar la forma exacta
+  de cada request. **`session_provider_test.dart`** cubre el enlace con
+  `PlayerProvider` (precarga en pausa, cita de reproducción, corrección de
+  deriva) con el mismo patrón de streams simulados que `player_provider_test`.
 - **`integration_test/`** arranca la app de verdad (Hive real, sin mocks) y
   necesita un dispositivo/navegador/desktop real — no corre bajo `flutter
   test` a secas porque `path_provider`/`shared_preferences` no tienen canal

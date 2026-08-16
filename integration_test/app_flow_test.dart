@@ -20,9 +20,13 @@ import 'package:mp3_player_flutter/main.dart';
 import 'package:mp3_player_flutter/providers/library_provider.dart';
 import 'package:mp3_player_flutter/providers/player_provider.dart';
 import 'package:mp3_player_flutter/providers/playlist_provider.dart';
+import 'package:mp3_player_flutter/providers/session_provider.dart';
+import 'package:mp3_player_flutter/services/api_client.dart';
 import 'package:mp3_player_flutter/services/audio_service.dart';
+import 'package:mp3_player_flutter/services/auth_service.dart';
 import 'package:mp3_player_flutter/services/file_service.dart';
 import 'package:mp3_player_flutter/services/playlist_service.dart';
+import 'package:mp3_player_flutter/services/session_service.dart';
 import 'package:mp3_player_flutter/services/storage_service.dart';
 
 void main() {
@@ -47,12 +51,21 @@ void main() {
       audioService: AudioService(),
       storage: getIt<StorageService>(),
     )..onDurationResolved = libraryProvider.updateDuration;
+    final sessionProvider = SessionProvider(
+      auth: getIt<AuthService>(),
+      sessionService: getIt<SessionService>(),
+      playerProvider: playerProvider,
+      libraryProvider: libraryProvider,
+      apiClient: getIt<ApiClient>(),
+      storage: getIt<StorageService>(),
+    );
 
     await tester.pumpWidget(
       MP3PlayerApp(
         libraryProvider: libraryProvider,
         playlistProvider: playlistProvider,
         playerProvider: playerProvider,
+        sessionProvider: sessionProvider,
       ),
     );
     await tester.pumpAndSettle();

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../models/playlist.dart';
+import '../screens/auth_screen.dart';
 import '../screens/error_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/player_screen.dart';
 import '../screens/playlist_screen.dart';
 import '../screens/search_screen.dart';
+import '../screens/session_screen.dart';
 import '../screens/settings_screen.dart';
 
 /// Nombres de ruta + generador central de rutas.
@@ -21,6 +23,8 @@ class AppRoutes {
   static const String playlist = '/playlist';
   static const String search = '/search';
   static const String settings = '/settings';
+  static const String auth = '/auth';
+  static const String session = '/session';
   static const String error = '/error';
 
   static Route<dynamic> onGenerateRoute(RouteSettings routeSettings) {
@@ -38,6 +42,10 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const SearchScreen());
       case settings:
         return MaterialPageRoute(builder: (_) => const SettingsScreen());
+      case auth:
+        return MaterialPageRoute(builder: (_) => const AuthScreen());
+      case session:
+        return MaterialPageRoute(builder: (_) => const SessionScreen());
       default:
         return MaterialPageRoute(
           builder: (_) =>

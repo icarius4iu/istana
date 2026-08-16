@@ -10,9 +10,13 @@ import 'providers/library_provider.dart';
 import 'providers/player_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/search_provider.dart';
+import 'providers/session_provider.dart';
+import 'services/api_client.dart';
 import 'services/audio_service.dart';
+import 'services/auth_service.dart';
 import 'services/file_service.dart';
 import 'services/playlist_service.dart';
+import 'services/session_service.dart';
 import 'services/storage_service.dart';
 
 Future<void> main() async {
@@ -44,11 +48,24 @@ Future<void> main() async {
     storage: getIt<StorageService>(),
   )..onDurationResolved = libraryProvider.updateDuration;
 
+  // Igual que playerProvider: se construye eager (no `create:` perezoso)
+  // porque necesita enlazarse con playerProvider/libraryProvider antes de
+  // que la UI arranque (ver SessionProvider._schedulePlayback).
+  final sessionProvider = SessionProvider(
+    auth: getIt<AuthService>(),
+    sessionService: getIt<SessionService>(),
+    playerProvider: playerProvider,
+    libraryProvider: libraryProvider,
+    apiClient: getIt<ApiClient>(),
+    storage: getIt<StorageService>(),
+  );
+
   runApp(
     MP3PlayerApp(
       libraryProvider: libraryProvider,
       playlistProvider: playlistProvider,
       playerProvider: playerProvider,
+      sessionProvider: sessionProvider,
     ),
   );
 }
@@ -57,12 +74,14 @@ class MP3PlayerApp extends StatelessWidget {
   final LibraryProvider libraryProvider;
   final PlaylistProvider playlistProvider;
   final PlayerProvider playerProvider;
+  final SessionProvider sessionProvider;
 
   const MP3PlayerApp({
     super.key,
     required this.libraryProvider,
     required this.playlistProvider,
     required this.playerProvider,
+    required this.sessionProvider,
   });
 
   @override
@@ -72,6 +91,7 @@ class MP3PlayerApp extends StatelessWidget {
         ChangeNotifierProvider<LibraryProvider>.value(value: libraryProvider),
         ChangeNotifierProvider<PlaylistProvider>.value(value: playlistProvider),
         ChangeNotifierProvider<PlayerProvider>.value(value: playerProvider),
+        ChangeNotifierProvider<SessionProvider>.value(value: sessionProvider),
         ChangeNotifierProvider<SearchProvider>(create: (_) => SearchProvider()),
       ],
       child: MaterialApp(

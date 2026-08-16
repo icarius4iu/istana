@@ -1,8 +1,12 @@
 import 'package:get_it/get_it.dart';
 
+import 'config/env.dart';
+import 'services/api_client.dart';
+import 'services/auth_service.dart';
 import 'services/file_service.dart';
 import 'services/notification_service.dart';
 import 'services/playlist_service.dart';
+import 'services/session_service.dart';
 import 'services/storage_service.dart';
 
 /// Service locator para lo que NO es estado reactivo (servicios, sin
@@ -26,5 +30,20 @@ Future<void> setupDependencies() async {
 
   getIt.registerLazySingleton<PlaylistService>(
     () => PlaylistService(storage: getIt<StorageService>()),
+  );
+
+  // Networking de la jam session: ApiClient primero (lee la URL guardada, o
+  // el fallback de Env), AuthService y SessionService dependen de él.
+  getIt.registerLazySingleton<ApiClient>(
+    () => ApiClient(
+      baseUrl: getIt<StorageService>().serverBaseUrl ?? Env.defaultApiBaseUrl,
+    ),
+  );
+  getIt.registerLazySingleton<AuthService>(
+    () =>
+        AuthService(api: getIt<ApiClient>(), storage: getIt<StorageService>()),
+  );
+  getIt.registerLazySingleton<SessionService>(
+    () => SessionService(api: getIt<ApiClient>()),
   );
 }
