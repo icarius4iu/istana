@@ -1,0 +1,38 @@
+name: Build Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.0"
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      # Sin keystore de release configurado (secreto del repo): firma con
+      # la key de debug, igual que `flutter run --release` localmente. Ver
+      # el README para cómo enchufar un keystore real antes de publicar en
+      # Play Store.
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: istana-android
+          path: build/app/outputs/flutter-apk/app-release.apk

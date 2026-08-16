@@ -1,0 +1,32 @@
+name: Build iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.0"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      # --no-codesign: no hay certificado/provisioning profile en CI. Esto
+      # valida que compila; para TestFlight hace falta firmar con un
+      # certificado real (secretos del repo) — ver el README.
+      - run: flutter build ios --release --no-codesign
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: istana-ios-runner
+          path: build/ios/iphoneos/Runner.app

@@ -1,0 +1,49 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.0"
+          channel: stable
+          cache: true
+
+      - name: Toolchain nativo de Flutter Linux (GTK + ninja)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev xvfb xdg-user-dirs
+
+      # metadata_god (lectura de tags ID3) compila su parte nativa con Rust
+      # vía cargokit — no viene preinstalado en todos los runners.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter config --enable-linux-desktop
+      - run: flutter build linux --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: istana-linux
+          path: build/linux/x64/release/bundle
+
+      # Corre los tests de integration_test/ contra el build real, en un
+      # framebuffer virtual (no hay pantalla en el runner). Ver el README:
+      # necesita `xdg-user-dirs-update` para que path_provider encuentre
+      # la carpeta de Documentos, y no debería correr codo a codo con otro
+      # proceso pesado del Dart Analysis Server (por eso es su propio job).
+      - name: Integration tests (Linux, headless)
+        continue-on-error: true
+        run: |
+          xdg-user-dirs-update
+          xvfb-run -a flutter test integration_test -d linux
