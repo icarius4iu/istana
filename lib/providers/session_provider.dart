@@ -298,7 +298,15 @@ class SessionProvider extends ChangeNotifier {
 
   void _onServerEvent(SessionServerEvent event) {
     switch (event) {
-      case StateChangedEvent _:
+      case StateChangedEvent e:
+        // El backend no reemite la sesión entera acá, solo el delta: sin
+        // este copyWith, togglePlayPause() (y el ícono play/pausa de la UI)
+        // quedarían leyendo para siempre el estado de cuando se entró.
+        _session = _session?.copyWith(
+          state: e.state,
+          currentPositionMs: e.positionMs,
+          currentSongId: e.currentSongId,
+        );
         _errorMessage = null;
         unawaited(_refreshQueue().then((_) => _ensureCurrentSongLoaded()));
         notifyListeners();

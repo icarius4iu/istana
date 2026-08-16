@@ -83,6 +83,27 @@ class JamSession {
     this.qrCodePngBase64,
   });
 
+  /// El WebSocket difunde `state_changed` con el nuevo estado/posición, pero
+  /// no reemite la sesión entera — `SessionProvider` usa esto para
+  /// mantenerla al día sin perder `qrCodePngBase64` (que solo viaja en la
+  /// respuesta de creación).
+  JamSession copyWith({
+    JamPlaybackState? state,
+    int? currentPositionMs,
+    String? currentSongId,
+  }) => JamSession(
+    id: id,
+    code: code,
+    ownerId: ownerId,
+    currentSongId: currentSongId ?? this.currentSongId,
+    currentPositionMs: currentPositionMs ?? this.currentPositionMs,
+    state: state ?? this.state,
+    maxUsers: maxUsers,
+    createdAt: createdAt,
+    expiresAt: expiresAt,
+    qrCodePngBase64: qrCodePngBase64,
+  );
+
   factory JamSession.fromJson(Map<String, dynamic> json) => JamSession(
     id: json['id'] as String,
     code: json['code'] as String,

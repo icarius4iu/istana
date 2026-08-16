@@ -473,6 +473,25 @@ void main() {
       },
     );
 
+    test('StateChangedEvent actualiza session.state (sin esto, togglePlayPause '
+        'queda leyendo para siempre el estado de cuando se entró)', () async {
+      final provider = await joinedProvider();
+      addTearDown(provider.dispose);
+      expect(provider.session?.state, JamPlaybackState.playing);
+
+      eventsController.add(
+        StateChangedEvent(
+          timestamp: DateTime.now(),
+          state: JamPlaybackState.paused,
+          positionMs: 5000,
+        ),
+      );
+      await _settle();
+
+      expect(provider.session?.state, JamPlaybackState.paused);
+      expect(provider.session?.currentPositionMs, 5000);
+    });
+
     test('SessionErrorEvent deja el mensaje en errorMessage', () async {
       final provider = await joinedProvider();
       addTearDown(provider.dispose);
