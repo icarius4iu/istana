@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- El template de Flutter solo declara INTERNET en los manifests de
+         debug/profile (src/debug, src/profile) — asumiendo un MVP sin red.
+         Ahora que hay jam session (HTTP/WebSocket) y transferencia P2P
+         (sockets), hace falta también acá, en main/, que es el que se
+         mergea en el build RELEASE (el que arma la CI y el que se instala
+         de verdad). Sin esto, cualquier intento de red en el APK release
+         falla con SocketException "Failed host lookup" — no es un problema
+         de DNS ni del backend, es que el proceso no tiene permiso de red. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ (API 33): acceso a archivos de audio del MediaStore. -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Android 12 y anteriores. maxSdkVersion evita pedirlo de más en 13+,
